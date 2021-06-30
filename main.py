@@ -7,29 +7,36 @@ from GPSPhoto import gpsphoto
 import subprocess
 from constants import STYLES_STRING
 from utils import (_get_if_exist, 
-					_convert_to_degress, 
-					get_exif_data,
-					write_html_doc)
+                    _convert_to_degress, 
+                    get_exif_data,
+                    write_html_doc)
 
 
 def get_coords_list(folder_name):
     """ 
     Code adopted from https://github.com/aleaf/GIS_utils 
+
+    
+    - For each picture in a folder,
+        - Check if there is GPS data in exifdata,
+            - if so, add it to `coord_list`
+        - otherwise check if the gpsphoto app can find any GPS data
+            - If so add it to `coord_list`
+        - otherwise, add photo to failed_photos list for debug output
+
+    The latter check with gpsphoto may be unnecessary. 
     """
 
     coord_list = []
     failed_photos = {}
     photos = [f"{folder_name}/{photo}" for photo in os.listdir(folder_name)]
     for photo in photos:
+        if ".mov" in photo:
+            continue
+        image = Image.open(photo)
+        exifdata = get_exif_data(image)
+
         data = gpsphoto.getGPSData(photo)
-        try:
-            image = Image.open(photo)
-            exifdata = get_exif_data(image)
-        except:
-            image = None
-            exifdata = None
-
-
         if exifdata and "GPSInfo" in exifdata:
             gps_info = exifdata["GPSInfo"]
             gps_latitude = _get_if_exist(gps_info, "GPSLatitude")
@@ -38,14 +45,8 @@ def get_coords_list(folder_name):
             gps_longitude_ref = _get_if_exist(gps_info, 'GPSLongitudeRef')
             
             if gps_latitude and gps_latitude_ref and gps_longitude and gps_longitude_ref:
-                lat = _convert_to_degress(gps_latitude)
-                if gps_latitude_ref != "N":                     
-                    lat = 0 - lat
-
-                longi = _convert_to_degress(gps_longitude)
-                if gps_longitude_ref != "E":
-                    longi = 0 - longi
-                    
+                lat = _convert_to_degress(gps_latitude, gps_latitude_ref, 'lat')
+                longi = _convert_to_degress(gps_longitude, gps_longitude_ref, 'long')
                 coord_list.append(((lat, longi), photo))
             
         elif data:
@@ -144,41 +145,40 @@ class makeMap:
 
 
 def main():
-	picture_folder = 'cuba'
+    picture_folder = 'cubaV2'
 
-	assert os.path.exists(picture_folder), 'Make sure image folder is set properly!'
+    assert os.path.exists(picture_folder), 'Make sure image folder is set properly!'
 
-	if not os.path.exists('output'):
-		os.mkdir('output')
+    if not os.path.exists('output'):
+        os.mkdir('output')
 
-	coord_list, failed_photos = get_coords_list(folder_name=picture_folder)
+    coord_list, failed_photos = get_coords_list(folder_name=picture_folder)
 
-	with open(f'output/{picture_folder}_failed.json', 'w') as f:
-		json.dump(failed_photos, f, indent=4, default=str)
+    with open(f'output/{picture_folder}_failed.json', 'w') as f:
+        json.dump(failed_photos, f, indent=4, default=str)
 
-	mymap = makeMap(np.mean([i[0][0] for i in coord_list]), 
-	                np.mean([i[0][1] for i in coord_list]), 
-	                10)
+    mymap = makeMap(np.mean([i[0][0] for i in coord_list]), 
+                    np.mean([i[0][1] for i in coord_list]), 
+                    10)
 
-	for (lat, longi), image_name in coord_list:
-	    mymap.addpoint(lat, longi, image_name)
+    for (lat, longi), image_name in coord_list:
+        mymap.addpoint(lat, longi, image_name)
 
-	mymap.draw(f'output/{picture_folder}_map.ts')
-	print(f'Created .ts file: output/{picture_folder}_map.ts')
+    mymap.draw(f'output/{picture_folder}_map.ts')
+    print(f'Created .ts file: output/{picture_folder}_map.ts')
 
-	### Compile typescript to JS
-	process = subprocess.Popen(f"tsc output/{picture_folder}_map.ts".split(), 
-								stdout=subprocess.PIPE)
-	output, error = process.communicate()
-	print(f'Created .js file: output/{picture_folder}_map.js')
+    ### Compile typescript to JS
+    process = subprocess.Popen(f"tsc output/{picture_folder}_map.ts".split(), 
+                                stdout=subprocess.PIPE)
+    output, error = process.communicate()
+    print(f'Created .js file: output/{picture_folder}_map.js')
 
-	### Create HTML file
-	with open(f'output/{picture_folder}_map.html', 'w') as f:
-		html = write_html_doc(f"{picture_folder}_map.js")
-		f.write(html)
+    ### Create HTML file
+    with open(f'output/{picture_folder}_map.html', 'w') as f:
+        write_html_doc(f"{picture_folder}_map.js", f)
 
-	print(f'Created .html file: output/{picture_folder}_map.html')
+    print(f'Created .html file: output/{picture_folder}_map.html')
 
 
 if __name__ == "__main__":
-	main()
+    main()
